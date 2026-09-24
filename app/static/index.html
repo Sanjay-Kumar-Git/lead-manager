@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admission Leads</title>
+<style>
+:root{--ink:#1d2433;--mute:#5d6778;--paper:#f4f6f8;--card:#fff;--line:#dfe3e8;--acc:#0f766e;--warn:#b45309;--bad:#b91c1c}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 "Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+header{background:var(--ink);color:#fff;padding:14px 24px;display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+header h1{font-size:18px;margin:0;font-weight:600;flex:1}
+nav button{background:none;border:0;color:#b8c1d0;font:inherit;padding:6px 12px;cursor:pointer;border-bottom:2px solid transparent}
+nav button.on{color:#fff;border-color:#5eead4}
+main{max-width:1100px;margin:0 auto;padding:20px}
+h2{font-size:16px;margin:24px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);padding:12px 14px;border-radius:6px}
+.stat b{font-size:26px;display:block}.stat span{color:var(--mute);font-size:13px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line)}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:14px}
+th{background:#eef1f4;font-weight:600}
+tr.click{cursor:pointer}tr.click:hover{background:#f0faf9}
+.wrap{overflow-x:auto}
+.bar{height:8px;background:var(--acc);border-radius:2px}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;background:#e3e8ee;font-size:12px}
+.tag.Enrolled{background:#c9f0e4;color:#065f46}.tag.Lost{background:#fbd5d5;color:var(--bad)}
+.late{color:var(--bad);font-weight:600}
+.bar-row{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:14px}.bar-row label{width:150px}.bar-row i{font-style:normal;width:30px;text-align:right}
+input,select,button.btn,textarea{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:#fff}
+button.btn{background:var(--acc);color:#fff;border-color:var(--acc);cursor:pointer}
+button.btn.alt{background:#fff;color:var(--ink);border-color:var(--line)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #0b5;outline-offset:1px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px;margin:12px 0}
+#msg{position:fixed;bottom:16px;right:16px;background:var(--ink);color:#fff;padding:10px 14px;border-radius:6px;display:none;max-width:340px}
+#msg.err{background:var(--bad)}
+.empty{color:var(--mute);padding:12px}
+</style>
+</head>
+<body>
+<header><h1>Admission leads</h1>
+<nav><button id="t-dash" class="on">Dashboard</button><button id="t-leads">Leads</button><button id="t-new">Add lead</button></nav></header>
+<main id="main"></main>
+<div id="msg" role="status"></div>
+<script>
+const $ = s => document.querySelector(s);
+let META = {}, tab = "dash";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(path, method = "GET", body) {
+  const r = await fetch("/api" + path, {method, headers: {"Content-Type": "application/json"}, body: body ? JSON.stringify(body) : undefined});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Check the form values and try again");
+  return data;
+}
+function toast(t, err) { const m = $("#msg"); m.textContent = t; m.className = err ? "err" : ""; m.style.display = "block"; setTimeout(() => m.style.display = "none", 3500); }
+const opts = (arr, sel, all) => (all ? `<option value="">${all}</option>` : "") + arr.map(o => `<option ${o == sel ? "selected" : ""}>${esc(o)}</option>`).join("");
+const cOpts = (sel, all) => (all ? `<option value="">${all}</option>` : "") + META.counsellors.map(c => `<option value="${c.id}" ${c.id == sel ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+
+function show(t) {
+  tab = t;
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.id === "t-" + t));
+  ({dash: dashboard, leads: leads, new: newLead})[t]();
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.id.slice(2)));
+
+async function dashboard() {
+  const d = await api("/dashboard");
+  const max = Math.max(1, ...Object.values(d.by_status));
+  $("#main").innerHTML = `
+  <div class="grid">
+    <div class="stat"><b>${d.total}</b><span>Total leads</span></div>
+    <div class="stat"><b>${d.by_status.Enrolled}</b><span>Enrolled (${d.conversion_pct}%)</span></div>
+    <div class="stat"><b class="${d.overdue_followups.length ? "late" : ""}">${d.overdue_followups.length}</b><span>Overdue follow-ups</span></div>
+    <div class="stat"><b>${d.open_lead_ageing["8+ days"]}</b><span>Open leads older than 7 days</span></div>
+  </div>
+  <div class="two">
+    <div><h2>Funnel</h2>${Object.entries(d.by_status).map(([k, v]) => `<div class="bar-row"><label>${k}</label><div class="bar" style="width:${v / max * 100}%;min-width:2px"></div><i>${v}</i></div>`).join("")}
+      <h2>Open lead ageing</h2>${Object.entries(d.open_lead_ageing).map(([k, v]) => `<div class="bar-row"><label>${k}</label><i>${v}</i></div>`).join("")}</div>
+    <div><h2>Course demand</h2>${d.by_course.map(x => `<div class="bar-row"><label>${esc(x.course)}</label><i>${x.leads}</i></div>`).join("") || '<div class="empty">No leads yet. Add the first one.</div>'}
+      <h2>Why leads were lost</h2>${d.lost_reasons.map(x => `<div class="bar-row"><label>${esc(x.reason)}</label><i>${x.n}</i></div>`).join("") || '<div class="empty">No lost leads.</div>'}</div>
+  </div>
+  <h2>Sources and conversion</h2><div class="wrap"><table><tr><th>Source</th><th>Leads</th><th>Enrolled</th><th>Conversion</th></tr>
+    ${d.by_source.map(s => `<tr><td>${esc(s.source)}</td><td>${s.leads}</td><td>${s.enrolled}</td><td>${s.conversion_pct}%</td></tr>`).join("")}</table></div>
+  <h2>Counsellor workload</h2><div class="wrap"><table><tr><th>Counsellor</th><th>Open</th><th>Enrolled</th><th>Total</th></tr>
+    ${d.by_counsellor.map(s => `<tr><td>${esc(s.name)}</td><td>${s.open}</td><td>${s.enrolled}</td><td>${s.total}</td></tr>`).join("")}</table></div>
+  <h2>Overdue follow-ups</h2>${d.overdue_followups.length ? `<div class="wrap"><table><tr><th>Lead</th><th>Counsellor</th><th>Due</th><th>Note</th></tr>
+    ${d.overdue_followups.map(f => `<tr class="click" onclick="detail(${f.lead_id})"><td>${esc(f.name)}</td><td>${esc(f.counsellor)}</td><td class="late">${f.due_date}</td><td>${esc(f.note)}</td></tr>`).join("")}</table></div>` : '<div class="empty">Nothing overdue.</div>'}`;
+}
+
+async function leads() {
+  $("#main").innerHTML = `<div class="row">
+    <input id="q" placeholder="Search name or phone">
+    <select id="fs">${opts(META.statuses, "", "All statuses")}</select>
+    <select id="fso">${opts(META.sources, "", "All sources")}</select>
+    <select id="fc">${cOpts("", "All counsellors")}</select></div><div id="list"></div><div id="det"></div>`;
+  ["q", "fs", "fso", "fc"].forEach(i => $("#" + i).oninput = loadList);
+  loadList();
+}
+async function loadList() {
+  const p = new URLSearchParams({q: $("#q").value, status: $("#fs").value, source: $("#fso").value, counsellor_id: $("#fc").value || 0});
+  const rows = await api("/leads?" + p);
+  $("#list").innerHTML = rows.length ? `<div class="wrap"><table><tr><th>Name</th><th>Phone</th><th>Course</th><th>Source</th><th>Status</th><th>Counsellor</th><th>Age</th><th>Next follow-up</th></tr>
+    ${rows.map(r => `<tr class="click" onclick="detail(${r.id})"><td>${esc(r.name)}</td><td>${r.phone}</td><td>${esc(r.course)}</td><td>${esc(r.source)}</td>
+    <td><span class="tag ${r.status.replace(" ", "")}">${r.status}</span></td><td>${esc(r.counsellor)}</td><td>${r.age_days}d</td>
+    <td class="${r.overdue ? "late" : ""}">${r.next_followup || "-"}${r.overdue ? " (overdue)" : ""}</td></tr>`).join("")}</table></div>`
+    : '<div class="empty">No leads match these filters.</div>';
+}
+
+async function detail(id) {
+  if (tab !== "leads") { tab = "leads"; await leads(); document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.id === "t-leads")); }
+  const l = await api("/leads/" + id), nxt = META.transitions[l.status];
+  $("#det").innerHTML = `<div class="panel"><h2 style="margin-top:0">${esc(l.name)} <span class="tag ${l.status.replace(" ", "")}">${l.status}</span></h2>
+    <div>${l.phone} ${l.email ? "| " + esc(l.email) : ""} | ${esc(l.course)} | ${esc(l.source)} | ${l.age_days} days old</div>
+    ${l.lost_reason ? `<div class="late">Lost: ${esc(l.lost_reason)}</div>` : ""}
+    <div class="row"><select id="ns">${nxt.map(s => `<option>${s}</option>`).join("") || "<option value=''>Final status</option>"}</select>
+      <input id="lr" placeholder="Reason (required for Lost)"><button class="btn" onclick="setStatus(${id})" ${nxt.length ? "" : "disabled"}>Update status</button></div>
+    <div class="row"><select id="as">${cOpts(l.counsellor_id)}</select><button class="btn alt" onclick="assign(${id})">Reassign</button></div>
+    <div class="row"><input type="date" id="fd"><input id="fn" placeholder="Follow-up note"><button class="btn alt" onclick="addFu(${id})">Schedule follow-up</button></div>
+    <h2>Follow-ups</h2>${l.followups.map(f => `<div>${f.due_date} - ${esc(f.note)} ${f.done ? "(done)" : `<button class="btn alt" onclick="doneFu(${f.id},${id})">Mark done</button>`}</div>`).join("") || '<div class="empty">None scheduled.</div>'}
+    <h2>Activity</h2>${l.activities.map(a => `<div><small>${a.created_at.replace("T", " ")}</small> ${esc(a.text)}</div>`).join("")}</div>`;
+  $("#det").scrollIntoView({behavior: "smooth"});
+}
+const act = async (fn, ok, id) => { try { await fn(); toast(ok); id ? detail(id) : 0; if (tab === "leads") loadList(); } catch (e) { toast(e.message, true); } };
+const setStatus = id => act(() => api(`/leads/${id}/status`, "POST", {status: $("#ns").value, lost_reason: $("#lr").value}), "Status updated", id);
+const assign = id => act(() => api(`/leads/${id}/assign`, "POST", {counsellor_id: +$("#as").value}), "Lead reassigned", id);
+const addFu = id => act(() => api(`/leads/${id}/followups`, "POST", {due_date: $("#fd").value, note: $("#fn").value}), "Follow-up scheduled", id);
+const doneFu = (f, id) => act(() => api(`/followups/${f}/done`, "POST"), "Follow-up marked done", id);
+
+function newLead() {
+  $("#main").innerHTML = `<div class="panel"><h2 style="margin-top:0">Add a lead</h2>
+    <div class="row"><input id="n" placeholder="Full name"><input id="p" placeholder="Phone (10 digits)"><input id="e" placeholder="Email (optional)"></div>
+    <div class="row"><select id="s">${opts(META.sources)}</select><select id="c">${opts(META.courses)}</select>
+      <select id="co">${cOpts("", "Auto-assign counsellor")}</select></div>
+    <button class="btn" onclick="save()">Save lead</button></div>`;
+}
+async function save() {
+  try {
+    const r = await api("/leads", "POST", {name: $("#n").value, phone: $("#p").value, email: $("#e").value || null,
+      source: $("#s").value, course: $("#c").value, counsellor_id: +$("#co").value || null});
+    toast("Lead saved"); await show("leads"); detail(r.id);
+  } catch (e) { toast(e.message, true); }
+}
+api("/meta").then(m => { META = m; show("dash"); });
+</script>
+</body>
+</html>
