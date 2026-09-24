@@ -280,3 +280,29 @@ def dashboard():
             "by_counsellor": by_counsellor, "overdue_followups": overdue, "open_lead_ageing": ageing,
             "lost_reasons": lost,
             "conversion_pct": round(100 * by_status["Enrolled"] / total, 1) if total else 0}
+
+
+def seed_demo():
+    """Optional demo data for a live deployment (only when SEED_DEMO=1 and DB is empty)."""
+    with db() as c:
+        if c.execute("SELECT 1 FROM leads").fetchone():
+            return
+    people = [("Ravi Kumar", "MBA", "Walk-in"), ("Priya Sharma", "B.Tech CSE", "Website"),
+              ("Arjun Mehta", "BBA", "WhatsApp"), ("Sneha Iyer", "B.Com", "Education Fair"),
+              ("Karan Patel", "B.Tech ECE", "Campaign"), ("Divya Reddy", "M.Tech", "Phone"),
+              ("Imran Khan", "MBA", "Referral"), ("Anita Das", "B.Tech CSE", "Website")]
+    ids = [create_lead(LeadIn(name=n, phone=f"98{i:02d}5501{i:02d}", source=s, course=co))["id"]
+           for i, (n, co, s) in enumerate(people, 1)]
+    for i, path in [(0, ["Contacted", "Interested", "Application Started", "Enrolled"]),
+                    (1, ["Contacted", "Interested"]), (2, ["Contacted"]), (4, ["Contacted", "Interested", "Application Started", "Enrolled"])]:
+        for st in path:
+            set_status(ids[i], StatusIn(status=st))
+    set_status(ids[5], StatusIn(status="Lost", lost_reason="Fees too high"))
+    with db() as c:  # backdate a few leads so ageing and overdue follow-ups show up
+        for lid, days in [(ids[2], 9), (ids[3], 5), (ids[6], 12)]:
+            c.execute("UPDATE leads SET created_at=datetime('now','localtime',?) WHERE id=?", (f"-{days} days", lid))
+            c.execute("UPDATE followups SET due_date=date('now','localtime',?) WHERE lead_id=? AND done=0", (f"-{days - 1} days", lid))
+
+
+if os.environ.get("SEED_DEMO") == "1":
+    seed_demo()
